@@ -1,0 +1,35 @@
+* `$ mvn archetype:generate -DarchetypeGroupId=org.apache.maven.archetypes -DarchetypeArtifactId=maven-archetype-simple -DarchetypeVersion=1.4`
+** JDK 21, `io.javalin:javalin-bundle:6.1.3`, `org.slf4j:slf4j-api:2.0.10`
+* https://javalin.io/documentation#getting-started
+** Simple demo
+```java
+public class HelloWorld {
+    public static void main(String[] args) {
+        var app = Javalin.create(/*config*/)
+        .get("/", ctx -> ctx.result("Hello World"))
+        .start(7070);
+    }
+}
+```
+** Introduce before, after and exception handlers that just log out
+** In the processing send out a request to `localhost:12345/headers`
+```java
+HttpClient client = HttpClient.newHttpClient();
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:12345/headers"))
+                .GET();
+```
+* Add `micrometer-observation` with `micrometer-bom` (check out `02pom.xml`)
+* Add 2 observations, one for inbound, one for outbound
+* Run example - nothing changes, explain handlers
+* Setup logback.xml
+* Add a logging handler with loggers, now sth happens, explain contexts
+* Add prometheus (`03pom.xml`) and add the prometheus registry (copy from https://docs.micrometer.io/micrometer/reference/implementations/prometheus.html and **modify the ports**)
+* Add `DefaultMeterObservationHandler`
+* Run and show that prometheus endpoint can be scraped
+* Change contexts to `RequestReplyReceiverContext` and `RequestReplySenderContext`, explain why, nothing changes
+* Add micrometer tracing with brave (`04pom.xml`)
+* Change `DMOH` to `TracingAwareMeterObservationHandler`, copy the tracing setup and set the first matching handlers with tracers
+* Add `ObservationFilter` that will add a tag `observationRegistry.observationConfig().observationFilter(context -> context.addLowCardinalityKeyValue(
+KeyValue.of("appName", "jnationApp")));`
+* Check tracing and metrics in Grafana by looking at the tag

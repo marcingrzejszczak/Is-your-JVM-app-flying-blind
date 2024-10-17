@@ -1,7 +1,8 @@
+
 * `$ mvn archetype:generate -DarchetypeGroupId=org.apache.maven.archetypes -DarchetypeArtifactId=maven-archetype-simple -DarchetypeVersion=1.4`
-** JDK 21, `io.javalin:javalin-bundle:6.1.3`, `org.slf4j:slf4j-api:2.0.10`
+** JDK 21, `io.javalin:javalin-bundle:6.3.0`, `org.slf4j:slf4j-api:2.0.16`
 * https://javalin.io/documentation#getting-started
-** Simple demo
+** Simple demo for the server side
 ```java
 public class HelloWorld {
     public static void main(String[] args) {
@@ -12,7 +13,8 @@ public class HelloWorld {
 }
 ```
 ** Introduce before, after and exception handlers that just log out
-** In the processing send out a request to `localhost:12345/headers`
+* Create another static void main and create a client
+** Client will send out a request to `localhost:12345/headers`
 ```java
 HttpClient client = HttpClient.newHttpClient();
             HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -20,7 +22,7 @@ HttpClient client = HttpClient.newHttpClient();
                 .GET();
 ```
 * Add `micrometer-observation` with `micrometer-bom` (check out `02pom.xml`)
-* Add 2 observations, one for inbound, one for outbound
+* Add 2 observations, one for inbound (server), one for outbound (client)
 * Run example - nothing changes, explain handlers
 * Setup logback.xml
 * Add a logging handler with loggers, now sth happens, explain contexts

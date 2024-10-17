@@ -1,23 +1,17 @@
 package com.example;
 
 import brave.Tracing;
-import brave.baggage.BaggageField;
 import brave.baggage.BaggagePropagation;
-import brave.baggage.BaggagePropagationConfig;
 import brave.context.slf4j.MDCScopeDecorator;
 import brave.propagation.B3Propagation;
 import brave.propagation.ThreadLocalCurrentTraceContext;
 import brave.sampler.Sampler;
 import com.sun.net.httpserver.HttpServer;
-import io.javalin.Javalin;
 import io.micrometer.common.KeyValue;
 import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
 import io.micrometer.observation.Observation;
-import io.micrometer.observation.Observation.Context;
-import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationHandler.FirstMatchingCompositeObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
-import io.micrometer.observation.transport.RequestReplyReceiverContext;
 import io.micrometer.observation.transport.RequestReplySenderContext;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
@@ -31,6 +25,11 @@ import io.micrometer.tracing.handler.DefaultTracingObservationHandler;
 import io.micrometer.tracing.handler.PropagatingReceiverTracingObservationHandler;
 import io.micrometer.tracing.handler.PropagatingSenderTracingObservationHandler;
 import io.micrometer.tracing.handler.TracingAwareMeterObservationHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import zipkin2.reporter.brave.AsyncZipkinSpanHandler;
+import zipkin2.reporter.urlconnection.URLConnectionSender;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -40,19 +39,18 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.util.Objects;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import zipkin2.reporter.brave.AsyncZipkinSpanHandler;
-import zipkin2.reporter.urlconnection.URLConnectionSender;
 
 /**
  * Hello world!
  */
-public class App {
+public class ClientApp {
 
-  private static final Logger log = LoggerFactory.getLogger(App.class);
+  private static final Logger log = LoggerFactory.getLogger(ClientApp.class);
 
-  public static void main(String[] args) {
+  public static void main(String[] args) throws Exception {
+
+      //================================================= CONFIG =========================================
+
     PrometheusMeterRegistry prometheusMeterRegistry = startPrometheusEndpoint();
 
     // [Brave component] Example of using a SpanHandler. SpanHandler is a component
@@ -100,54 +98,27 @@ public class App {
     observationRegistry.observationConfig().observationHandler(new FirstMatchingCompositeObservationHandler(new PropagatingReceiverTracingObservationHandler<>(tracer, new BravePropagator(tracing)), new PropagatingSenderTracingObservationHandler<>(tracer, new BravePropagator(tracing)), new DefaultTracingObservationHandler(tracer)));
 
     observationRegistry.observationConfig().observationFilter(context -> context.addLowCardinalityKeyValue(
-        KeyValue.of("appName", "jnationApp")));
+        KeyValue.of("appName", "conferenceClientApp")));
 
 
-    var app = Javalin.create(/*config*/)
-        .get("/", ctx -> {
-          Observation observation = ctx.attribute(Observation.class.getName());
+      //================================================= APP =========================================
 
-          observation.scopedChecked(() -> {
-            log.info("PROCESSING REQUEST");
+  RequestReplySenderContext<HttpRequest.Builder, HttpResponse> context = new RequestReplySenderContext<>(
+      (carrier, key, value) -> Objects.requireNonNull(carrier).header(key, value));
 
-            RequestReplySenderContext<HttpRequest.Builder, HttpResponse> context = new RequestReplySenderContext<>(
-                (carrier, key, value) -> Objects.requireNonNull(carrier).header(key, value));
+  HttpClient client = HttpClient.newHttpClient();
+  HttpRequest.Builder builder = HttpRequest.newBuilder()
+      .uri(URI.create("http://localhost:7070/"))
+      .GET();
+  context.setCarrier(builder);
+  Observation.createNotStarted("http.client.requests", () -> context, observationRegistry)
+      .observeChecked(() -> {
+          HttpRequest request = builder.build();
+          HttpResponse<String> send = client.send(request, BodyHandlers.ofString());
+          log.info("GOT RESPONSE");
+          context.setResponse(send);
+      });
 
-            HttpClient client = HttpClient.newHttpClient();
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:12345/headers"))
-                .GET();
-            context.setCarrier(builder);
-            Observation clientObservation = Observation.start("http.client.requests", () -> context, observationRegistry);
-            clientObservation.scopedChecked(() -> {
-              HttpRequest request = builder.build();
-              HttpResponse<String> send = client.send(request, BodyHandlers.ofString());
-
-              context.setResponse(send);
-              ctx.result("Got response <" + send.body() + ">");
-              clientObservation.stop();
-            });
-          });
-        });
-    app.before(ctx -> {
-      RequestReplyReceiverContext<io.javalin.http.Context, io.javalin.http.Context> receiverContext = new RequestReplyReceiverContext<>(
-          io.javalin.http.Context::header);
-      receiverContext.setCarrier(ctx);
-      Observation observation = Observation.start("http.server.requests", () -> receiverContext, observationRegistry);
-      log.info("BEFORE");
-      ctx.attribute(Observation.class.getName(), observation);
-    });
-    app.after(ctx -> {
-      Observation observation = ctx.attribute(Observation.class.getName());
-      log.info("AFTER");
-      observation.stop();
-    });
-    app.exception(Exception.class, (e, ctx) -> {
-      Observation observation = ctx.attribute(Observation.class.getName());
-      log.info("EXCEPTION");
-      observation.error(e);
-    });
-    app.start(7070);
   }
 
 
@@ -156,7 +127,7 @@ public class App {
     PrometheusMeterRegistry prometheusRegistry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
 
     try {
-      HttpServer server = HttpServer.create(new InetSocketAddress(4567), 0);
+      HttpServer server = HttpServer.create(new InetSocketAddress(4568), 0);
       server.createContext("/prometheus", httpExchange -> {
         String response = prometheusRegistry.scrape();
         httpExchange.sendResponseHeaders(200, response.getBytes().length);
@@ -170,43 +141,6 @@ public class App {
     }
     catch (IOException e) {
       throw new RuntimeException(e);
-    }
-  }
-
-
-  static class MyTextHandler implements ObservationHandler<Observation.Context> {
-
-    private static final Logger log = LoggerFactory.getLogger(MyTextHandler.class);
-
-    @Override
-    public void onStart(Context context) {
-      context.put("STARTED", "true");
-      log.info("\t\tSTARTED");
-    }
-
-    @Override
-    public void onError(Context context) {
-      ObservationHandler.super.onError(context);
-    }
-
-    @Override
-    public void onScopeOpened(Context context) {
-      log.info("\t\t\tOPENED SCOPE");
-    }
-
-    @Override
-    public void onScopeClosed(Context context) {
-      log.info("\t\t\tCLOSED SCOPE");
-    }
-
-    @Override
-    public void onStop(Context context) {
-      log.info("\t\tSTOPPED [" + context.get("STARTED") + "]");
-    }
-
-    @Override
-    public boolean supportsContext(Context context) {
-      return true;
     }
   }
 }
